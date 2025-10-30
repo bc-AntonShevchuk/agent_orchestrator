@@ -1,7 +1,8 @@
 # Test Plan Automation Orchestrator
 
-> **🎯 Interactive Mode**: This orchestrator works **semi-automatically** with Cursor IDE agent.  
-> **See [USAGE_WITH_CURSOR.md](./USAGE_WITH_CURSOR.md) for step-by-step instructions.**
+> **🚀 NEW: Automated Mode Available!**  
+> **🤖 AUTOMATED**: Fully automatic execution via `cursor-agent` CLI - [Setup Guide](./USAGE_AUTOMATED.md)  
+> **👤 INTERACTIVE**: Manual workflow with Cursor Composer - [Instructions](./USAGE_WITH_CURSOR.md)
 
 ## 📋 Description
 
@@ -19,6 +20,8 @@ Automates the test plan creation process through 4 logical steps:
 
 ## 🎯 Features
 
+- ✅ **Two Operation Modes**: Automated (cursor-agent CLI) and Interactive (manual)
+- ✅ **Fully Automated Execution**: No manual intervention needed (automated mode)
 - ✅ Automatic execution of all 4 steps
 - ✅ Retry logic with exponential backoff (up to 3 attempts per step)
 - ✅ Validation of results for each step
@@ -26,6 +29,7 @@ Automates the test plan creation process through 4 logical steps:
 - ✅ Final report generation
 - ✅ Timeout protection (5 minutes per step)
 - ✅ Integrity checking of created files
+- ✅ **Auto-detection**: Smart mode selection based on environment
 
 ## 📁 Structure
 
@@ -36,7 +40,49 @@ Automates the test plan creation process through 4 logical steps:
 └── README.md              # This documentation
 ```
 
-## 🚀 Usage
+## 🚀 Quick Start
+
+### Option A: Automated Mode (Recommended) 🤖
+
+**Fully automatic - no manual steps!**
+
+```bash
+# 1. Install Cursor CLI (one-time setup)
+./run.sh --install-cli
+
+# 2. Set API key
+export CURSOR_API_KEY="your-api-key"
+
+# 3. Run!
+./run.sh --input=example_prompt.txt --automated
+```
+
+✨ **That's it!** The orchestrator runs all 4 steps automatically.
+
+👉 **Full Guide**: [USAGE_AUTOMATED.md](./USAGE_AUTOMATED.md)
+
+---
+
+### Option B: Interactive Mode 👤
+
+**Manual workflow with Cursor Composer**
+
+```bash
+# Run orchestrator
+./run.sh --input=example_prompt.txt --interactive
+
+# For each step:
+#   1. Copy prompt from step_N_prompt.txt
+#   2. Paste into Cursor Composer (Cmd+I)
+#   3. Wait for files to be created
+#   4. Script continues automatically
+```
+
+👉 **Full Guide**: [USAGE_WITH_CURSOR.md](./USAGE_WITH_CURSOR.md)
+
+---
+
+## 📖 Detailed Usage
 
 ### Step 1: Prepare Prompt
 
@@ -54,49 +100,41 @@ Requirements:
 
 See [example_prompt.txt](example_prompt.txt) for an example.
 
-### Step 2: Run Orchestrator
+### Step 2: Choose Your Mode
+
+#### Automated Mode
 
 ```bash
 cd .local/automation
-php orchestrator.php --input=my_prompt.txt --output-dir=../
+./run.sh --input=my_prompt.txt --automated
 ```
 
-### Step 3: Working with Agent
+#### Interactive Mode
 
-The script will sequentially execute 4 steps. For each step:
+```bash
+cd .local/automation
+./run.sh --input=my_prompt.txt --interactive
+```
+
+#### Auto-Detect Mode (Smart)
+
+```bash
+cd .local/automation
+./run.sh --input=my_prompt.txt
+# Uses automated if cursor-agent available, otherwise interactive
+```
+
+### Step 3: Monitor Execution
+
+**Automated Mode**: Script executes cursor-agent CLI for each step automatically.
+
+**Interactive Mode**: For each step:
 
 1. **Script generates specialized prompt** for AI agent
 2. **Saves prompt** to `step_N_prompt.txt`
-3. **Waits for file creation** by agent
+3. **Waits for file creation** by agent (you use Cursor Composer)
 4. **Validates results**
 5. **On error** - retries step (up to 3 times)
-
-### Operation Modes
-
-#### Mode A: Automatic (requires API)
-Full automation requires Cursor API or similar AI service.
-
-**TODO**: Add support for:
-- Cursor AI API
-- OpenAI API
-- Anthropic Claude API
-
-#### Mode B: Semi-automatic (current)
-1. Script creates prompt for each step
-2. You copy prompt and pass to AI agent manually
-3. Agent creates files
-4. Script validates results
-
-```bash
-# Run script
-php orchestrator.php --input=prompt.txt --output-dir=../
-
-# Script will create step_1_prompt.txt and wait for files
-# You copy contents of step_1_prompt.txt
-# Give to AI agent (Cursor, ChatGPT, Claude)
-# Agent creates files in .local/
-# Script automatically detects files and continues
-```
 
 ## 📊 Parameters
 
@@ -105,7 +143,16 @@ php orchestrator.php --input=prompt.txt --output-dir=../
 
 ### Optional
 - `--output-dir=DIR` - Directory for output files (default: `../`)
+- `--automated, --auto` - Use automated mode with cursor-agent CLI
+- `--interactive` - Force interactive mode (manual)
+- `--install-cli` - Install Cursor CLI (for run.sh only)
+- `--dry-run` - Preview execution without running
 - `--help, -h` - Show help
+
+### Mode Selection Logic
+1. If `--automated` flag: Use automated mode (requires cursor-agent + API key)
+2. If `--interactive` flag: Use interactive mode
+3. If no flag: Auto-detect (automated if available, otherwise interactive)
 
 ## 🔍 Step Details
 
@@ -332,22 +379,24 @@ After successful execution, output directory will contain:
 
 ## 🔮 Future Improvements
 
-- [ ] Cursor AI API integration
+- [x] Cursor AI CLI integration ✅ **DONE** (v2.0)
 - [ ] OpenAI API integration
 - [ ] Claude API integration
 - [ ] Parallel execution of independent steps
 - [ ] Web UI for progress monitoring
 - [ ] Metrics export to Prometheus/Grafana
-- [ ] CI/CD integration
+- [x] CI/CD integration ✅ **DONE** (v2.0 - via automated mode)
 - [ ] Custom validator support via config
 - [ ] Resume mechanism (continue from last successful step)
 
 ## 📚 See Also
 
+- [USAGE_AUTOMATED.md](USAGE_AUTOMATED.md) - ⭐ **Automated mode guide** (NEW!)
+- [USAGE_WITH_CURSOR.md](USAGE_WITH_CURSOR.md) - Interactive mode guide
+- [QUICK_START.md](QUICK_START.md) - Quick reference
+- [WORKFLOW_DIAGRAM.md](WORKFLOW_DIAGRAM.md) - Visual workflow
 - [example_prompt.txt](example_prompt.txt) - Example prompt
 - [orchestrator.php](orchestrator.php) - Script source code
-- [../INDEX.md](../INDEX.md) - Main project navigation
-- [../QUICKSTART.md](../QUICKSTART.md) - Quick start
 
 ## 📞 Support
 
@@ -359,7 +408,8 @@ If issues occur:
 
 ---
 
-**Version**: 1.0.0  
+**Version**: 2.0.0  
 **Last Updated**: 2025-10-30  
-**Author**: Test Automation Team
+**Author**: Test Automation Team  
+**Major Changes**: Added fully automated mode via cursor-agent CLI
 

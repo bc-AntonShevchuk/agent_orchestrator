@@ -19,12 +19,15 @@ class TestPlanOrchestrator
 {
     private const MAX_RETRIES = 3;
     private const TIMEOUT_SECONDS = 300; // 5 minutes per step
+    private const AGENT_CHECK_INTERVAL = 2; // Check agent progress every 2 seconds
     
     private string $inputPrompt;
     private string $outputDir;
     private string $logFile;
     private array $stepResults = [];
     private int $currentStep = 0;
+    private bool $useAutomatedMode = false;
+    private string $cursorModel = 'claude-sonnet-4.5'; // Default model
     
     // Logical steps
     private const STEPS = [
@@ -57,13 +60,55 @@ class TestPlanOrchestrator
         ],
     ];
     
-    public function __construct(string $inputPrompt, string $outputDir)
+    public function __construct(string $inputPrompt, string $outputDir, bool $automated = false)
     {
         $this->inputPrompt = $inputPrompt;
         $this->outputDir = rtrim($outputDir, '/') . '/';
         $this->logFile = $this->outputDir . 'orchestrator.log';
+        $this->useAutomatedMode = $automated;
         
         $this->ensureOutputDirectory();
+        $this->detectOperationMode();
+    }
+    
+    /**
+     * Detect and configure operation mode
+     */
+    private function detectOperationMode(): void
+    {
+        // Check if cursor-agent is available
+        $cursorAgentAvailable = $this->isCursorAgentAvailable();
+        $apiKeySet = !empty(getenv('CURSOR_API_KEY'));
+        
+        if ($this->useAutomatedMode && !$cursorAgentAvailable) {
+            $this->log("⚠️  Automated mode requested but cursor-agent not found", 'WARNING');
+            $this->log("💡 Falling back to interactive mode", 'INFO');
+            $this->useAutomatedMode = false;
+        }
+        
+        if ($this->useAutomatedMode && !$apiKeySet) {
+            $this->log("⚠️  CURSOR_API_KEY not set", 'WARNING');
+            $this->log("💡 Falling back to interactive mode", 'INFO');
+            $this->useAutomatedMode = false;
+        }
+        
+        $mode = $this->useAutomatedMode ? '🤖 AUTOMATED' : '👤 INTERACTIVE';
+        $this->log("🎯 Operation mode: {$mode}");
+        
+        if ($this->useAutomatedMode) {
+            $this->log("✅ cursor-agent CLI detected");
+            $this->log("✅ CURSOR_API_KEY configured");
+            $this->log("🤖 Model: {$this->cursorModel}");
+        }
+    }
+    
+    /**
+     * Check if cursor-agent CLI is available
+     */
+    private function isCursorAgentAvailable(): bool
+    {
+        exec('which cursor-agent 2>/dev/null', $output, $returnCode);
+        return $returnCode === 0;
     }
     
     /**
@@ -183,15 +228,124 @@ class TestPlanOrchestrator
     }
     
     /**
-     * Invoke Cursor AI agent (Interactive Mode)
+     * Invoke Cursor AI agent (Automated or Interactive Mode)
      */
     private function invokeCursorAgent(string $prompt, int $stepNumber): array
     {
-        // Create prompt file that user can reference
+        // Create prompt file for reference
         $promptFile = $this->outputDir . "step_{$stepNumber}_prompt.txt";
         file_put_contents($promptFile, $prompt);
         
-        $this->log("📝 Prompt ready for Cursor agent");
+        if ($this->useAutomatedMode) {
+            return $this->invokeCursorAgentAutomated($prompt, $stepNumber, $promptFile);
+        } else {
+            return $this->invokeCursorAgentInteractive($prompt, $stepNumber, $promptFile);
+        }
+    }
+    
+    /**
+     * Invoke Cursor agent using CLI (Automated Mode)
+     */
+    private function invokeCursorAgentAutomated(string $prompt, int $stepNumber, string $promptFile): array
+    {
+        $this->log("🤖 Invoking Cursor agent via CLI (Automated Mode)");
+        
+        $result = [
+            'status' => 'pending',
+            'files_created' => [],
+            'step' => $stepNumber,
+        ];
+        
+        $expectedFiles = $this->getExpectedFiles($stepNumber);
+        
+        $this->log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        $this->log("🤖 Executing Cursor Agent (Automated)");
+        $this->log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        $this->log("");
+        $this->log("Expected files:");
+        foreach ($expectedFiles as $file) {
+            $this->log("  - {$file}");
+        }
+        $this->log("");
+        
+        // Prepare context for agent
+        $context = $this->prepareAgentContext($stepNumber);
+        $fullPrompt = $context . "\n\n" . $prompt;
+        
+        // Save full prompt for debugging
+        $fullPromptFile = $this->outputDir . "step_{$stepNumber}_full_prompt.txt";
+        file_put_contents($fullPromptFile, $fullPrompt);
+        
+        // Execute cursor-agent command
+        $escapedPrompt = escapeshellarg($fullPrompt);
+        $escapedOutputDir = escapeshellarg($this->outputDir);
+        
+        $command = "cd {$escapedOutputDir} && cursor-agent -p {$escapedPrompt} --model {$this->cursorModel} --force 2>&1";
+        
+        $this->log("🚀 Executing cursor-agent...");
+        $startTime = time();
+        
+        exec($command, $output, $returnCode);
+        
+        $duration = time() - $startTime;
+        $this->log("⏱️  Agent execution took {$duration}s");
+        
+        // Log agent output
+        if (!empty($output)) {
+            $this->log("📄 Agent output:");
+            foreach ($output as $line) {
+                $this->log("   " . $line);
+            }
+        }
+        
+        if ($returnCode !== 0) {
+            throw new Exception("cursor-agent failed with exit code {$returnCode}");
+        }
+        
+        // Verify files were created
+        $this->log("");
+        $this->log("🔍 Verifying file creation...");
+        
+        $allFilesExist = true;
+        $createdFiles = [];
+        $missingFiles = [];
+        
+        foreach ($expectedFiles as $file) {
+            $filePath = $this->outputDir . $file;
+            if (file_exists($filePath)) {
+                $createdFiles[] = $file;
+                $this->log("   ✓ {$file}");
+            } else {
+                $allFilesExist = false;
+                $missingFiles[] = $file;
+                $this->log("   ✗ {$file} (missing)", 'WARNING');
+            }
+        }
+        
+        if (!$allFilesExist) {
+            $this->log("");
+            $this->log("❌ Not all expected files were created. Missing:");
+            foreach ($missingFiles as $file) {
+                $this->log("   ✗ {$file}");
+            }
+            throw new Exception("Agent did not create all expected files for step {$stepNumber}");
+        }
+        
+        $result['status'] = 'completed';
+        $result['files_created'] = $createdFiles;
+        
+        $this->log("");
+        $this->log("✅ All expected files created successfully!");
+        
+        return $result;
+    }
+    
+    /**
+     * Invoke Cursor agent interactively (Interactive Mode)
+     */
+    private function invokeCursorAgentInteractive(string $prompt, int $stepNumber, string $promptFile): array
+    {
+        $this->log("📝 Prompt ready for Cursor agent (Interactive Mode)");
         
         $result = [
             'status' => 'pending',
@@ -220,7 +374,7 @@ class TestPlanOrchestrator
         
         // Wait for file creation with progress indicators
         $timeout = time() + self::TIMEOUT_SECONDS;
-        $checkInterval = 2; // Check every 2 seconds
+        $checkInterval = self::AGENT_CHECK_INTERVAL;
         $lastCheck = 0;
         
         while (time() < $timeout) {
@@ -273,6 +427,21 @@ class TestPlanOrchestrator
         }
         
         return $result;
+    }
+    
+    /**
+     * Prepare context for automated agent execution
+     */
+    private function prepareAgentContext(int $stepNumber): string
+    {
+        $context = "# Cursor Agent - Automated Execution Context\n\n";
+        $context .= "Working Directory: {$this->outputDir}\n";
+        $context .= "Step: {$stepNumber}/4\n";
+        $context .= "Mode: Automated\n\n";
+        $context .= "IMPORTANT: Create all files in the current directory ({$this->outputDir})\n";
+        $context .= "All file paths should be relative to this directory.\n\n";
+        
+        return $context;
     }
     
     /**
@@ -863,6 +1032,8 @@ function parseArgs(array $argv): array
         'input' => null,
         'output-dir' => null,
         'help' => false,
+        'automated' => false,
+        'interactive' => false,
     ];
     
     for ($i = 1; $i < count($argv); $i++) {
@@ -870,6 +1041,10 @@ function parseArgs(array $argv): array
             $args[$matches[1]] = $matches[2];
         } elseif ($argv[$i] === '--help' || $argv[$i] === '-h') {
             $args['help'] = true;
+        } elseif ($argv[$i] === '--automated' || $argv[$i] === '--auto') {
+            $args['automated'] = true;
+        } elseif ($argv[$i] === '--interactive') {
+            $args['interactive'] = true;
         }
     }
     
@@ -885,21 +1060,53 @@ function showHelp(): void
 Test Plan Automation Orchestrator
 
 Usage:
-  php orchestrator.php --input=<prompt_file> --output-dir=<output_directory>
+  php orchestrator.php --input=<prompt_file> [OPTIONS]
   
 Options:
-  --input=FILE         Path to file containing the initial prompt
+  --input=FILE         Path to file containing the initial prompt (required)
   --output-dir=DIR     Directory where files will be created (default: ../)
+  --automated, --auto  Use automated mode with cursor-agent CLI
+  --interactive        Force interactive mode (manual Cursor Composer)
   --help, -h           Show this help message
   
-Example:
-  php orchestrator.php --input=prompt.txt --output-dir=../
+Operation Modes:
+  🤖 AUTOMATED MODE (--automated)
+    - Requires: cursor-agent CLI installed
+    - Requires: CURSOR_API_KEY environment variable
+    - Fully automated execution via cursor-agent CLI
+    - No manual interaction needed
+    
+  👤 INTERACTIVE MODE (--interactive or default)
+    - Manual copy-paste workflow with Cursor Composer
+    - You paste prompts into Cursor Composer (Cmd+I)
+    - Script monitors for file creation
+    - Default mode if cursor-agent not available
+    
+Examples:
+  # Automated mode (fully automatic)
+  export CURSOR_API_KEY="your-api-key"
+  php orchestrator.php --input=prompt.txt --automated
+  
+  # Interactive mode (manual)
+  php orchestrator.php --input=prompt.txt --interactive
+  
+  # Auto-detect mode (uses automated if available)
+  php orchestrator.php --input=prompt.txt
   
 Steps executed:
   1. PLAN → Create detailed specifications (plan.md)
   2. QUALITY → Create quality checklist (checklist.md)
   3. DECOMPOSITION → Create atomic tasks (tasks/*.md)
   4. STANDARDIZATION → Create standardized structure (INDEX.md, etc.)
+
+Setup for Automated Mode:
+  1. Install Cursor CLI:
+     curl https://cursor.com/install -fsS | bash
+     
+  2. Set API key:
+     export CURSOR_API_KEY="your-api-key-here"
+     
+  3. Run with --automated flag
 
 HELP;
 }
@@ -931,13 +1138,29 @@ if (!file_exists($args['input'])) {
 $inputPrompt = file_get_contents($args['input']);
 $outputDir = $args['output-dir'] ?? '../';
 
+// Determine operation mode
+$automated = false;
+if ($args['automated']) {
+    $automated = true;
+} elseif ($args['interactive']) {
+    $automated = false;
+} else {
+    // Auto-detect: try automated if cursor-agent is available
+    exec('which cursor-agent 2>/dev/null', $output, $returnCode);
+    $automated = ($returnCode === 0 && !empty(getenv('CURSOR_API_KEY')));
+}
+
+$modeLabel = $automated ? "Automated Mode" : "Interactive Mode";
+$modeIcon = $automated ? "🤖" : "👤";
+
 echo "\n";
 echo "╔════════════════════════════════════════════════════════╗\n";
 echo "║   Test Plan Automation Orchestrator                   ║\n";
+echo "║   {$modeIcon} {$modeLabel}" . str_repeat(" ", 51 - strlen($modeLabel)) . "║\n";
 echo "╚════════════════════════════════════════════════════════╝\n";
 echo "\n";
 
-$orchestrator = new TestPlanOrchestrator($inputPrompt, $outputDir);
+$orchestrator = new TestPlanOrchestrator($inputPrompt, $outputDir, $automated);
 $success = $orchestrator->execute();
 
 exit($success ? 0 : 1);
