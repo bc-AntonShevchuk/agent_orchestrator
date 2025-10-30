@@ -1,0 +1,25 @@
+Create a comprehensive test coverage plan for the code in file modules/payment/gateway/module.gateway.php
+
+Requirements:
+- Analyze all methods of the PAYMENT_GATEWAY class (89 methods)
+- Create detailed specification for each method
+- Describe test scenarios (happy path, error cases, edge cases)
+- Document dependencies and parameters for each method
+- Specify mock requirements with code examples
+- Define expected number of tests for each method
+- Set code coverage goals (80%+ overall, 100% for critical methods)
+
+Class is located at: modules/payment/gateway/module.gateway.php
+Tests should be in: tests/Unit/Modules/Payment/Gateway/PaymentGatewayTest.php
+
+The class has:
+- 20 dependencies in constructor
+- Implements 10 interfaces
+- Contains critical payment operations (capture, refund, void)
+- OAuth integration
+- Address handling
+- Button rendering
+- Feature flags
+
+The plan should be detailed enough that any developer can implement the tests without additional information.
+
